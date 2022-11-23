@@ -25,6 +25,9 @@ func assertClusterConfigDefaults(t *testing.T, c ClusterConfig) {
 	assert.NotNil(t, c.NewRestConfig)
 	assert.NotNil(t, c.NewCtrlClient)
 
+	// artificial error
+	assert.NotNil(t, nil)
+
 	// Workdir is mandatory in NewCluster()
 	assert.Equal(t, "test/kubeconfig.yaml", c.Kubeconfig)
 }
