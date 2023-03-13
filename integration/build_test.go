@@ -9,15 +9,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
-
-const ()
 
 var (
 	projectRoot string
 	cacheDir    string
 	testDataDir string
+	runtime     dev.ContainerRuntime
 )
 
 func init() {
@@ -26,8 +26,13 @@ func init() {
 		panic(err)
 	}
 	projectRoot = dir
-	cacheDir = filepath.Join(projectRoot, ".cache/test-stub")
+	cacheDir = filepath.Join(projectRoot, ".cache")
 	testDataDir = filepath.Join(projectRoot, "integration/test-data")
+
+	runtime, err = dev.DetectContainerRuntime()
+	if err != nil {
+		panic(err)
+	}
 }
 
 func buildBinary() error {
@@ -37,45 +42,47 @@ func buildBinary() error {
 	return cmd.Run()
 }
 
-func cleanCacheDir() error {
-	if err := os.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
+func cleanCache(cache string) error {
+	if err := os.RemoveAll(cache); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("deleting cache: %w", err)
 	}
-	if err := os.Remove(cacheDir + ".tar"); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(cache + ".tar"); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("deleting image cache: %w", err)
 	}
-	if err := os.MkdirAll(cacheDir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(cache, os.ModePerm); err != nil {
 		return fmt.Errorf("creating cache dir: %w", err)
 	}
 	return nil
 }
 
-func populateCacheDir() error {
-	if err := sh.Copy(filepath.Join(cacheDir, "main"),
-		filepath.Join(testDataDir, "main")); err != nil {
-		return fmt.Errorf("copying binary: %w", err)
-	}
-	if err := sh.Copy(filepath.Join(cacheDir, "passwd"),
-		filepath.Join(testDataDir, "passwd")); err != nil {
-		return fmt.Errorf("copying passwd: %w", err)
-	}
-	if err := sh.Copy(filepath.Join(cacheDir, "test-stub.Containerfile"),
-		filepath.Join(testDataDir, "test-stub.Containerfile")); err != nil {
-		return fmt.Errorf("copying Containerfile: %w", err)
+func populateCache(cache string, files []string) error {
+	for _, f := range files {
+		if err := sh.Copy(cache, f); err != nil {
+			return fmt.Errorf("copying %s: %w", f, err)
+		}
 	}
 	return nil
 }
 
-func TestBuildImage(t *testing.T) {
-	runtime, err := dev.DetectContainerRuntime()
+func detectImage(tagPattern string) (bool, error) {
+	out, err := exec.Command(string(runtime), "images").Output()
 	if err != nil {
-		t.Fatal(err)
+		return false, err
 	}
+	return regexp.Match(tagPattern, out)
+}
+
+func TestBuildImage(t *testing.T) {
+	cache := filepath.Join(cacheDir, "test-stub")
 
 	deps := []interface{}{
 		mg.F(buildBinary),
-		mg.F(cleanCacheDir),
-		mg.F(populateCacheDir),
+		mg.F(cleanCache, cache),
+		mg.F(populateCache, cache, []string{
+			filepath.Join(testDataDir, "main"),
+			filepath.Join(testDataDir, "passwd"),
+			filepath.Join(testDataDir, "test-stub.Containerfile"),
+		}),
 	}
 
 	buildInfo := dev.ImageBuildInfo{
@@ -86,9 +93,38 @@ func TestBuildImage(t *testing.T) {
 		Runtime:       string(runtime),
 	}
 
-	err = dev.BuildImage(&buildInfo, deps)
-	fmt.Println(err)
-	assert.NoError(t, err)
+	assert.NoError(t, dev.BuildImage(&buildInfo, deps))
 
-	// TODO: test that image is present and correctly tagged
+	match, err := detectImage("/test-stub")
+	assert.NoError(t, err)
+	assert.True(t, match)
+}
+
+func TestBuildPackage(t *testing.T) {
+	cache := filepath.Join(cacheDir, "test-stub-package")
+
+	// TODO: copy artifacts, test-stub -> test-stub-package
+	deps := []interface{}{
+		mg.F(buildBinary),
+		mg.F(cleanCache, cache),
+		mg.F(populateCache, cache, []string{
+			filepath.Join(testDataDir, "main"),
+			filepath.Join(testDataDir, "passwd"),
+			filepath.Join(testDataDir, "test-stub.Containerfile"),
+		}),
+	}
+
+	buildInfo := dev.ImageBuildInfo{
+		ImageTag:      "test-stub",
+		CacheDir:      cacheDir,
+		ContainerFile: "test-stub.Containerfile",
+		ContextDir:    ".",
+		Runtime:       string(runtime),
+	}
+
+	assert.NoError(t, dev.BuildImage(&buildInfo, deps))
+
+	match, err := detectImage("/test-stub")
+	assert.NoError(t, err)
+	assert.True(t, match)
 }
