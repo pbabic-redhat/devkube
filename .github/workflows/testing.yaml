@@ -23,3 +23,8 @@ jobs:
         with:
           version: latest
           args: test:unit
+      - name: Run integration tests
+        uses: magefile/mage-action@v2
+        with:
+          version: latest
+          args: test:integration
