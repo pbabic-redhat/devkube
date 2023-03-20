@@ -55,9 +55,9 @@ func cleanCache(cache string) error {
 	return nil
 }
 
-func populateCache(cache string, files []string) error {
+func populateCache(cache string, files ...string) error {
 	for _, f := range files {
-		if err := sh.Copy(cache, f); err != nil {
+		if err := sh.Copy(filepath.Join(cache, filepath.Base(f)), f); err != nil {
 			return fmt.Errorf("copying %s: %w", f, err)
 		}
 	}
@@ -78,16 +78,15 @@ func TestBuildImage(t *testing.T) {
 	deps := []interface{}{
 		mg.F(buildBinary),
 		mg.F(cleanCache, cache),
-		mg.F(populateCache, cache, []string{
+		mg.F(populateCache, cache,
 			filepath.Join(testDataDir, "main"),
 			filepath.Join(testDataDir, "passwd"),
-			filepath.Join(testDataDir, "test-stub.Containerfile"),
-		}),
+			filepath.Join(testDataDir, "test-stub.Containerfile")),
 	}
 
 	buildInfo := dev.ImageBuildInfo{
 		ImageTag:      "test-stub",
-		CacheDir:      cacheDir,
+		CacheDir:      cache,
 		ContainerFile: "test-stub.Containerfile",
 		ContextDir:    ".",
 		Runtime:       string(runtime),
@@ -102,29 +101,27 @@ func TestBuildImage(t *testing.T) {
 
 func TestBuildPackage(t *testing.T) {
 	cache := filepath.Join(cacheDir, "test-stub-package")
+	testPackageDir := filepath.Join(testDataDir, "test-stub-package")
 
-	// TODO: copy artifacts, test-stub -> test-stub-package
 	deps := []interface{}{
-		mg.F(buildBinary),
 		mg.F(cleanCache, cache),
-		mg.F(populateCache, cache, []string{
-			filepath.Join(testDataDir, "main"),
-			filepath.Join(testDataDir, "passwd"),
-			filepath.Join(testDataDir, "test-stub.Containerfile"),
-		}),
+		mg.F(populateCache, cache,
+			filepath.Join(testPackageDir, "manifest.yaml"),
+			filepath.Join(testPackageDir, "deployment.yaml.gotmpl"),
+			filepath.Join(testPackageDir, "namespace.template.yaml.gotmpl")),
 	}
 
-	buildInfo := dev.ImageBuildInfo{
-		ImageTag:      "test-stub",
-		CacheDir:      cacheDir,
-		ContainerFile: "test-stub.Containerfile",
-		ContextDir:    ".",
-		Runtime:       string(runtime),
+	buildInfo := dev.PackageBuildInfo{
+		ImageTag:   "test-stub-package",
+		CacheDir:   cache,
+		SourcePath: cache,
+		OutputPath: cache + ".tar",
+		Runtime:    string(runtime),
 	}
 
-	assert.NoError(t, dev.BuildImage(&buildInfo, deps))
+	assert.NoError(t, dev.BuildPackage(&buildInfo, deps))
 
-	match, err := detectImage("/test-stub")
+	match, err := detectImage("/test-stub-package")
 	assert.NoError(t, err)
 	assert.True(t, match)
 }
