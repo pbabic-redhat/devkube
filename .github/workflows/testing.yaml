@@ -22,7 +22,7 @@ jobs:
         run: |
           wget https://github.com/package-operator/package-operator/releases/download/v1.5.0/kubectl-package_linux_amd64
           chmod +x kubectl-package_linux_amd64
-          mv kubectl-package_linux_amd64 /bin/kubectl-package
+          sudo mv kubectl-package_linux_amd64 /bin/kubectl-package
       - name: Run unit tests
         uses: magefile/mage-action@v2
         with:
